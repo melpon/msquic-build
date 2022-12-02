@@ -112,19 +112,19 @@ jobs:
     strategy:
       fail-fast: true
     steps:
-      - uses: ./.github/download
+      - uses: ./.github/actions/download
         with:
           platform: windows_x86_64
-      - uses: ./.github/download
+      - uses: ./.github/actions/download
         with:
           platform: macos_arm64
-      - uses: ./.github/download
+      - uses: ./.github/actions/download
         with:
           platform: ios
-      - uses: ./.github/download
+      - uses: ./.github/actions/download
         with:
           platform: ubuntu-20.04_x86_64
-      - uses: ./.github/download
+      - uses: ./.github/actions/download
         with:
           platform: android
       - name: Env to output
