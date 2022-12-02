@@ -112,6 +112,7 @@ jobs:
     strategy:
       fail-fast: true
     steps:
+      - uses: actions/checkout@v3
       - uses: ./.github/actions/download
         with:
           platform: windows_x86_64
