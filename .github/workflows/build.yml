@@ -103,7 +103,7 @@ jobs:
           path: _package/${{ matrix.name }}/release/msquic.env
   create-release:
     name: Create Release
-    if: contains(github.ref, 'tags/202')
+    if: contains(github.ref, 'tags/v')
     needs:
       - build-windows
       - build-macos
