@@ -439,6 +439,7 @@ def main():
     msquic_source_dir = os.path.join(source_dir, 'msquic')
     msquic_build_dir = os.path.join(build_dir, 'msquic')
     msquic_install_dir = os.path.join(install_dir, 'msquic')
+    rm_rf(msquic_build_dir)
     mkdir_p(msquic_build_dir)
 
     git_clone_shallow('https://github.com/microsoft/msquic.git', msquic_version, msquic_source_dir)
@@ -472,10 +473,18 @@ def main():
             cmake_args.append(f'-DCMAKE_SYSROOT={sysroot}')
         if platform == 'ios':
             cmake_args += ['-G', 'Xcode']
-            cmake_args.append("-DCMAKE_SYSTEM_NAME=iOS")
-            cmake_args.append("-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64")
-            cmake_args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0")
-            cmake_args.append("-DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO")
+            cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={cmake_path(os.path.join(msquic_source_dir, 'cmake', 'toolchains', 'ios.cmake'))}")
+            cmake_args.append('-DDEPLOYMENT_TARGET=13.0')
+            cmake_args.append('-DENABLE_ARC=0')
+            cmake_args.append('-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0')
+            # cmake_args.append("-DCMAKE_SYSTEM_NAME=iOS")
+            # cmake_args.append("-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64")
+            # cmake_args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0")
+            # cmake_args.append("-DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO")
+            # 以下のエラーが出てしまうのを何とかする
+            # /path/to/msquic-build/_source/ios/release/msquic/src/core/frame.c:1841:38: error: implicit conversion loses integer precision: 'QUIC_VAR_INT'
+            #      (aka 'unsigned long long') to 'QUIC_FRAME_TYPE' (aka 'enum QUIC_FRAME_TYPE') [-Werror,-Wshorten-64-to-32]
+            cmake_args.append("-DCMAKE_C_FLAGS=-Wno-shorten-64-to-32")
         if platform == 'android':
             cmake_args.append('-DANDROID_ABI=arm64-v8a')
             cmake_args.append('-DANDROID_PLATFORM=android-29')
@@ -483,20 +492,27 @@ def main():
             cmake_args.append(f"-DANDROID_NDK={cmake_path(ndk_home)}")
             cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={cmake_path(os.path.join(ndk_home, 'build', 'cmake', 'android.toolchain.cmake'))}")
 
-        cmd(['cmake', msquic_source_dir, *cmake_args])
         if platform == 'ios':
-            cmd(['cmake', '--build', '.', f'-j{multiprocessing.cpu_count()}', '--config', configuration,
-                '--target', 'msquic_lib', '--', '-arch', 'x86_64', '-sdk', 'iphonesimulator'])
-            cmd(['cmake', '--build', '.', f'-j{multiprocessing.cpu_count()}', '--config', configuration,
-                '--target', 'msquic_lib', '--', '-arch', 'arm64', '-sdk', 'iphoneos'])
-            # 後でライブラリは差し替えるけど、他のデータをコピーするためにとりあえず install は呼んでおく
-            cmd(['cmake', '--install', '.'])
+            mkdir_p('x86_64')
+            with cd('x86_64'):
+                cmd(['cmake', msquic_source_dir, *cmake_args, '-DPLATFORM=SIMULATOR64'])
+                cmd(['cmake', '--build', '.', f'-j{multiprocessing.cpu_count()}', '--config', configuration,
+                    '--target', 'msquic_lib'])
+            mkdir_p('arm64')
+            with cd('arm64'):
+                cmd(['cmake', msquic_source_dir, *cmake_args, '-DPLATFORM=OS64'])
+                cmd(['cmake', '--build', '.', f'-j{multiprocessing.cpu_count()}', '--config', configuration,
+                    '--target', 'msquic_lib'])
+                # 後でライブラリは差し替えるけど、他のデータをコピーするためにとりあえず install は呼んでおく
+                cmd(['cmake', '--install', '.'])
             cmd(['lipo', '-create', '-output', os.path.join(msquic_build_dir, 'libmsquic.a'),
-                os.path.join(msquic_build_dir, f'{configuration}-iphonesimulator', 'libmsquic.a'),
-                os.path.join(msquic_build_dir, f'{configuration}-iphoneos', 'libmsquic.a')])
+                os.path.join(msquic_build_dir, 'x86_64', 'bin', f'{configuration}', 'libmsquic.a'),
+                os.path.join(msquic_build_dir, 'arm64', 'bin', f'{configuration}', 'libmsquic.a')])
+            mkdir_p(os.path.join(msquic_install_dir, 'lib'))
             shutil.copyfile(os.path.join(msquic_build_dir, 'libmsquic.a'),
                             os.path.join(msquic_install_dir, 'lib', 'libmsquic.a'))
         else:
+            cmd(['cmake', msquic_source_dir, *cmake_args])
             cmd(['cmake', '--build', '.', '--target', 'msquic_lib', f'-j{multiprocessing.cpu_count()}', '--config', configuration])
             cmd(['cmake', '--install', '.', '--config', configuration])
             if platform in ('windows_x86_64', 'windows_arm64'):
