@@ -462,7 +462,7 @@ def main():
         cmake_args.append('-DQUIC_BUILD_SHARED=OFF')
         if platform in ('macos_x86_64', 'macos_arm64'):
             sysroot = cmdcap(['xcrun', '--sdk', 'macosx', '--show-sdk-path'])
-            arch = 'x86_64' if platform == 'macos_x86_64' else 'aarch64'
+            arch = 'x86_64' if platform == 'macos_x86_64' else 'arm64'
             target = 'x86_64-apple-darwin' if platform == 'macos_x86_64' else 'aarch64-apple-darwin'
             cmake_args.append(f'-DCMAKE_SYSTEM_PROCESSOR={arch}')
             cmake_args.append(f'-DCMAKE_OSX_ARCHITECTURES={arch}')
