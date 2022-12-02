@@ -353,6 +353,15 @@ def install_cmake(version, source_dir, install_dir, platform: str, ext):
     extract(path, install_dir, 'cmake')
 
 
+@versioned
+def install_android_ndk(version, install_dir, source_dir):
+    archive = download(
+        f'https://dl.google.com/android/repository/android-ndk-{version}-linux.zip',
+        source_dir)
+    rm_rf(os.path.join(install_dir, 'android-ndk'))
+    extract(archive, output_dir=install_dir, output_dirname='android-ndk')
+
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
@@ -409,6 +418,18 @@ def main():
     else:
         add_path(os.path.join(install_dir, 'cmake', 'bin'))
 
+    # Android NDK
+    if platform == 'android':
+        install_android_ndk_args = {
+            'version': version['ANDROID_NDK_VERSION'],
+            'version_file': os.path.join(install_dir, 'android-ndk.version'),
+            'source_dir': source_dir,
+            'install_dir': install_dir,
+        }
+        install_android_ndk(**install_android_ndk_args)
+        add_path(os.path.join(install_dir, 'android-ndk', 'toolchains', 'llvm', 'prebuilt', 'linux-x86_64', 'bin'))
+        os.environ['ANDROID_NDK_HOME'] = os.path.join(install_dir, 'android-ndk')
+
     configuration = 'Release'
     if args.debug:
         configuration = 'Debug'
@@ -421,6 +442,18 @@ def main():
     mkdir_p(msquic_build_dir)
 
     git_clone_shallow('https://github.com/microsoft/msquic.git', msquic_version, msquic_source_dir)
+    with cd(msquic_source_dir):
+        # 以下のような形式で出力されるので、それぞれパスとハッシュ値に分ける
+        # -a4f472c5fe2c8298c0ada2e24717458c45a17eb1 submodules/clog
+        # -dd7a9d29a33de34836c345c3b753d4eba15c5f44 submodules/googletest
+        # -6d6e737a473eba179ea9b666a7bc2e3873c1c5c7 submodules/openssl
+        r = cmdcap(['git', 'submodule', 'status'])
+        xs = map(lambda line: line[1:].split(), r.splitlines())
+        # ハッシュ値のコミットだけ clone してくる
+        for [hash, path] in xs:
+            # .gitmodules から URL を取得
+            url = cmdcap(['git', 'config', '-f', '.gitmodules', f'submodule.{path}.url'])
+            git_clone_shallow(url, hash, path)
 
     with cd(msquic_build_dir):
         cmake_args = []
@@ -443,6 +476,12 @@ def main():
             cmake_args.append("-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64")
             cmake_args.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0")
             cmake_args.append("-DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO")
+        if platform == 'android':
+            cmake_args.append('-DANDROID_ABI=arm64-v8a')
+            cmake_args.append('-DANDROID_PLATFORM=android-29')
+            ndk_home = os.path.join(install_dir, 'android-ndk')
+            cmake_args.append(f"-DANDROID_NDK={cmake_path(ndk_home)}")
+            cmake_args.append(f"-DCMAKE_TOOLCHAIN_FILE={cmake_path(os.path.join(ndk_home, 'build', 'cmake', 'android.toolchain.cmake'))}")
 
         cmd(['cmake', msquic_source_dir, *cmake_args])
         if platform == 'ios':
@@ -461,10 +500,13 @@ def main():
             cmd(['cmake', '--build', '.', '--target', 'msquic_lib', f'-j{multiprocessing.cpu_count()}', '--config', configuration])
             cmd(['cmake', '--install', '.', '--config', configuration])
             if platform in ('windows_x86_64', 'windows_arm64'):
-                # msquic.lib がインストールされてないのでちゃんとコピーする
-                mkdir_p(os.path.join(msquic_install_dir, 'lib'))
-                shutil.copyfile(os.path.join(msquic_build_dir, 'bin', 'Release', 'msquic.lib'),
-                                os.path.join(msquic_install_dir, 'lib', 'msquic.lib'))
+                msquic_lib = 'msquic.lib'
+            elif platform in ('ubuntu-20.04_x86_64', 'macos_x86_64', 'macos_arm64', 'android', 'ios'):
+                msquic_lib = 'libmsquic.a'
+            # msquic.lib がインストールされてないのでちゃんとコピーする
+            mkdir_p(os.path.join(msquic_install_dir, 'lib'))
+            shutil.copyfile(os.path.join(msquic_build_dir, 'bin', 'Release', msquic_lib),
+                            os.path.join(msquic_install_dir, 'lib', msquic_lib))
 
     if args.package:
         rm_rf(package_dir)
